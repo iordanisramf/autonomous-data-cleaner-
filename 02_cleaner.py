@@ -1,55 +1,17 @@
 import pandas as pd
 import sqlite3
 import os
-import difflib
+# Stage 1: Header Validation
+def validate_headers(df):
+    required_columns = ['product_id', 'sale_date', 'units_sold', 'sale_price']
 
-# Stage 1: Header Normalization via Fuzzy Matching
-def normalize_headers(df):
-    target_columns = ['product_id', 'sale_date', 'units_sold', 'sale_price']
+    missing_columns = [col for col in required_columns if col not in df.columns]
 
-    # Extended synonym dictionary including some Greek terms
-    synonyms = {
-        'product_id': ['product_id', 'product id', 'id', 'pid', 'κωδικος προιοντος', 'κοδικος'],
-        'sale_date': ['sale_date', 'sale date', 'date', 'ημερομηνια'],
-        'units_sold': ['units_sold', 'units sold', 'units', 'quantity', 'qty'],
-        'sale_price': ['sale_price', 'sale price', 'price', 'τιμη']
-    }
+    if missing_columns:
+        raise ValueError(f"Strict Schema Validation Error: Missing required columns: {', '.join(missing_columns)}. "
+                         f"Headers must exactly match: {', '.join(required_columns)}")
 
-    new_columns = []
-    for col in df.columns:
-        col_lower = str(col).lower().strip()
-        matched_target = None
-
-        # 1. Direct match with synonyms
-        for target, syn_list in synonyms.items():
-            if col_lower in syn_list:
-                matched_target = target
-                break
-
-        # 2. Fuzzy match if no direct match found
-        if not matched_target:
-            all_synonyms = []
-            synonym_to_target = {}
-            for target, syn_list in synonyms.items():
-                for syn in syn_list:
-                    all_synonyms.append(syn)
-                    synonym_to_target[syn] = target
-
-            matches = difflib.get_close_matches(col_lower, all_synonyms, n=1, cutoff=0.7)
-            if matches:
-                matched_target = synonym_to_target[matches[0]]
-
-        # If still no match, keep original (or drop later depending on requirement)
-        new_columns.append(matched_target if matched_target else col)
-
-    df.columns = new_columns
-
-    # Ensure all target columns exist, even if missing
-    for target in target_columns:
-        if target not in df.columns:
-            df[target] = pd.NA
-
-    return df[target_columns].copy()
+    return df[required_columns].copy()
 
 # Stage 2: Vectorized Cleaning
 def clean_data(df):
@@ -197,8 +159,12 @@ def main():
         print(f"Error reading {raw_file}: {e}")
         return
 
-    print("Stage 1: Header Normalization...")
-    df = normalize_headers(df)
+    print("Stage 1: Header Validation...")
+    try:
+        df = validate_headers(df)
+    except ValueError as e:
+        print(e)
+        return
 
     print("Stage 2: Vectorized Cleaning...")
     df = clean_data(df)
