@@ -12,7 +12,7 @@ Before processing any data, the database schema must be initialized.
 
 ## 2. Data Cleaning Pipeline (`02_cleaner.py`)
 
-This is the main engine of the program. It reads a raw Excel file (`data/raw_sales.xlsx`) and processes it purely in memory before pushing the valid results to the database. It operates in 4 strict stages.
+This is the main engine of the program. It automatically scans the `data/incoming/` directory for any raw `.xlsx` files and processes them purely in memory before pushing the valid results to the database. It operates in 4 strict stages.
 
 ### Stage 1: Header Validation
 - **Action:** The system inspects the incoming Excel dataframe columns.
