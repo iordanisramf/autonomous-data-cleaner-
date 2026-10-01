@@ -1,6 +1,22 @@
 import pandas as pd
 import sqlite3
 import os
+import shutil
+import logging
+import glob
+from datetime import datetime
+
+# Setup Logging
+os.makedirs('data', exist_ok=True)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('data/pipeline.log'),
+        logging.StreamHandler()
+    ]
+)
+
 # Stage 1: Header Validation
 def validate_headers(df):
     required_columns = ['product_id', 'sale_date', 'units_sold', 'sale_price']
@@ -94,7 +110,7 @@ def isolate_data(df):
 def ingest_data(clean_df, rejected_df):
     db_path = 'data/company_finance.db'
     if not os.path.exists(db_path):
-        print(f"Database {db_path} does not exist.")
+        logging.error(f"Database {db_path} does not exist.")
         return
 
     conn = sqlite3.connect(db_path)
@@ -104,7 +120,7 @@ def ingest_data(clean_df, rejected_df):
         valid_products = pd.read_sql_query("SELECT product_id FROM products", conn)
         valid_product_ids = set(valid_products['product_id'])
     except sqlite3.Error as e:
-         print(f"Error reading products table: {e}")
+         logging.error(f"Error reading products table: {e}")
          conn.close()
          return
 
@@ -127,54 +143,80 @@ def ingest_data(clean_df, rejected_df):
             existing_rejected = pd.read_excel(quarantine_path)
             rejected_df = pd.concat([existing_rejected, rejected_df], ignore_index=True)
         except Exception as e:
-            print(f"Error reading existing quarantine file: {e}")
+            logging.error(f"Error reading existing quarantine file: {e}")
 
     if not rejected_df.empty:
         rejected_df.to_excel(quarantine_path, index=False)
-        print(f"Exported {len(rejected_df)} rejected rows to {quarantine_path}")
+        logging.info(f"Exported {len(rejected_df)} rejected rows to {quarantine_path}")
 
     # Ingest clean
     if not final_clean_df.empty:
         try:
             final_clean_df.to_sql('clean_sales', conn, if_exists='append', index=False)
-            print(f"Successfully ingested {len(final_clean_df)} rows into clean_sales.")
+            logging.info(f"Successfully ingested {len(final_clean_df)} rows into clean_sales.")
         except sqlite3.Error as e:
-            print(f"Database error during ingestion: {e}")
+            logging.error(f"Database error during ingestion: {e}")
     else:
-        print("No valid rows to ingest.")
+        logging.info("No valid rows to ingest.")
 
     conn.close()
 
-def main():
-    raw_file = 'data/raw_sales.xlsx'
+def process_file(filepath):
+    logging.info(f"--- Starting processing for {filepath} ---")
 
-    if not os.path.exists(raw_file):
-        print(f"Raw data file {raw_file} not found.")
-        return
-
-    print("Reading raw data...")
     try:
-        df = pd.read_excel(raw_file)
+        df = pd.read_excel(filepath)
     except Exception as e:
-        print(f"Error reading {raw_file}: {e}")
-        return
+        logging.error(f"Error reading {filepath}: {e}")
+        return False
 
-    print("Stage 1: Header Validation...")
+    logging.info("Stage 1: Header Validation...")
     try:
         df = validate_headers(df)
     except ValueError as e:
-        print(e)
-        return
+        logging.error(e)
+        return False
 
-    print("Stage 2: Vectorized Cleaning...")
+    logging.info("Stage 2: Vectorized Cleaning...")
     df = clean_data(df)
 
-    print("Stage 3: Boolean Masking & Isolation...")
+    logging.info("Stage 3: Boolean Masking & Isolation...")
     clean_df, rejected_df = isolate_data(df)
 
-    print("Stage 4: Database Ingestion...")
+    logging.info("Stage 4: Database Ingestion...")
     ingest_data(clean_df, rejected_df)
-    print("Pipeline complete.")
+
+    return True
+
+def main():
+    incoming_dir = 'data/incoming'
+    archive_dir = 'data/archive'
+
+    os.makedirs(incoming_dir, exist_ok=True)
+    os.makedirs(archive_dir, exist_ok=True)
+
+    excel_files = glob.glob(os.path.join(incoming_dir, '*.xlsx'))
+
+    if not excel_files:
+        logging.info(f"No Excel files found in {incoming_dir}. Pipeline exiting.")
+        return
+
+    for filepath in excel_files:
+        success = process_file(filepath)
+
+        if success:
+            filename = os.path.basename(filepath)
+            name, ext = os.path.splitext(filename)
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            new_filename = f"{name}_processed_{timestamp}{ext}"
+
+            archive_path = os.path.join(archive_dir, new_filename)
+            shutil.move(filepath, archive_path)
+            logging.info(f"Successfully archived {filename} to {archive_path}")
+        else:
+            logging.error(f"Processing failed for {filepath}. File left in incoming folder.")
+
+    logging.info("--- Batch processing complete ---")
 
 if __name__ == "__main__":
     main()
