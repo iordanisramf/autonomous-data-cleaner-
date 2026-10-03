@@ -1,0 +1,10 @@
+version: '3.8'
+
+services:
+  financial-pipeline:
+    build: .
+    container_name: data-cleaner-container
+    volumes:
+      # Map the local 'data' folder to the container's '/app/data' folder.
+      # This ensures persistence of the database, input files, and logs.
+      - ./data:/app/data
